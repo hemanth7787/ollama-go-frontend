@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ollama Go Frontend</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
+
+    <style>
+        /* Approximate VS Code Dark Theme */
+        :root {
+            --bg-primary: #1E1E1E; /* Editor background */
+            --bg-secondary: #252526; /* Sidebar, panels */
+            --bg-tertiary: #333333; /* Input fields, dropdowns */
+            --text-primary: #CCCCCC; /* Primary text */
+            --text-secondary: #9CDCFE; /* Code, links */
+            --text-muted: #808080; /* Comments, less important text */
+            --border-color: #444444; /* Borders */
+            --accent-blue: #007ACC;
+            --user-msg-bg: #04395E; /* Dark blue for user messages */
+            --assistant-msg-bg: var(--bg-secondary);
+        }
+
+        .dark body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        /* Style for chat messages */
+        .user-message {
+            text-align: right;
+            margin-left: auto;
+            background-color: var(--user-msg-bg);
+            border-color: var(--accent-blue);
+        }
+        .assistant-message {
+            text-align: left;
+            margin-right: auto;
+            background-color: var(--assistant-msg-bg);
+            border-color: var(--border-color);
+        }
+        .message-bubble {
+            max-width: 85%; /* Slightly wider */
+            padding: 0.75rem 1rem;
+            border-radius: 0.75rem;
+            margin-bottom: 0.75rem; /* Increased spacing */
+            border: 1px solid;
+            word-wrap: break-word;
+            white-space: pre-wrap; /* Preserve whitespace for non-markdown text */
+        }
+        .message-role {
+            font-weight: 500; /* medium */
+            color: var(--text-muted);
+            font-size: 0.8rem; /* smaller */
+            margin-bottom: 0.25rem;
+        }
+        .message-content img {
+            max-width: 200px;
+            max-height: 200px;
+            border-radius: 0.5rem;
+            margin-top: 0.5rem;
+            display: block;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Markdown Styles */
+        .message-content-markdown {
+            white-space: normal; /* Allow markdown to control whitespace */
+        }
+        .message-content-markdown > *:first-child { margin-top: 0; } /* Remove extra space */
+        .message-content-markdown > *:last-child { margin-bottom: 0; }
+        .message-content-markdown p { margin-bottom: 0.5em; }
+        .message-content-markdown h1,
+        .message-content-markdown h2,
+        .message-content-markdown h3,
+        .message-content-markdown h4,
+        .message-content-markdown h5,
+        .message-content-markdown h6 {
+            margin-top: 0.8em;
+            margin-bottom: 0.4em;
+            font-weight: 600; /* semibold */
+            color: var(--text-secondary);
+        }
+        .message-content-markdown h1 { font-size: 1.5em; }
+        .message-content-markdown h2 { font-size: 1.3em; }
+        .message-content-markdown h3 { font-size: 1.15em; }
+        .message-content-markdown ul,
+        .message-content-markdown ol {
+            margin-left: 1.5em;
+            margin-bottom: 0.5em;
+        }
+        .message-content-markdown li { margin-bottom: 0.2em; }
+        .message-content-markdown code {
+            background-color: rgba(156, 220, 254, 0.1); /* Light blue background */
+            color: var(--text-secondary);
+            padding: 0.1em 0.3em;
+            border-radius: 0.25rem;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9em;
+        }
+        .message-content-markdown pre {
+            background-color: var(--bg-primary); /* Slightly different bg for code blocks */
+            border: 1px solid var(--border-color);
+            padding: 0.75em;
+            border-radius: 0.375rem;
+            overflow-x: auto; /* Allow horizontal scrolling */
+            margin-top: 0.5em;
+            margin-bottom: 0.5em;
+        }
+        .message-content-markdown pre code {
+            background-color: transparent; /* Reset inline code style */
+            padding: 0;
+            border-radius: 0;
+            font-size: 0.85em; /* Slightly smaller in blocks */
+        }
+        .message-content-markdown blockquote {
+            border-left: 3px solid var(--accent-blue);
+            padding-left: 1em;
+            margin-left: 0;
+            margin-top: 0.5em;
+            margin-bottom: 0.5em;
+            color: var(--text-muted);
+        }
+        .message-content-markdown a {
+            color: var(--text-secondary);
+            text-decoration: underline;
+        }
+        .message-content-markdown table {
+            border-collapse: collapse;
+            width: auto;
+            margin-top: 0.5em;
+            margin-bottom: 0.5em;
+            border: 1px solid var(--border-color);
+        }
+        .message-content-markdown th,
+        .message-content-markdown td {
+            border: 1px solid var(--border-color);
+            padding: 0.4em 0.6em;
+        }
+        .message-content-markdown th {
+            background-color: var(--bg-tertiary);
+            font-weight: 600;
+        }
+
+
+        /* Loading spinner */
+        .loader {
+            border: 4px solid var(--bg-tertiary); /* Darker grey */
+            border-top: 4px solid var(--accent-blue); /* Blue */
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: none; /* Hidden by default */
+            margin: 10px auto; /* Center loader */
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Style file input */
+        input[type="file"] {
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+        input[type="file"]:hover {
+            background-color: #444444; /* Slightly lighter gray */
+        }
+        /* Style for image preview container */
+        #image-preview-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            margin-bottom: 0.5rem; /* Add space below previews */
+        }
+        .img-preview {
+            max-width: 60px;
+            max-height: 60px;
+            border-radius: 0.25rem;
+            object-fit: cover;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Tailwind Dark Mode Overrides (using CSS variables) */
+        .dark .dark\:bg-gray-900 { background-color: var(--bg-primary); }
+        .dark .dark\:bg-gray-800 { background-color: var(--bg-secondary); }
+        .dark .dark\:bg-gray-700 { background-color: var(--bg-tertiary); }
+        .dark .dark\:text-gray-100 { color: var(--text-primary); }
+        .dark .dark\:text-gray-200 { color: var(--text-primary); } /* Adjusted */
+        .dark .dark\:text-gray-300 { color: var(--text-primary); } /* Adjusted */
+        .dark .dark\:text-gray-400 { color: var(--text-muted); }
+        .dark .dark\:border-gray-700 { border-color: var(--border-color); }
+        .dark .dark\:border-gray-600 { border-color: var(--border-color); } /* Adjusted */
+        .dark .dark\:placeholder-gray-500::placeholder { color: var(--text-muted); }
+        .dark .dark\:hover\:bg-gray-700:hover { background-color: #444444; } /* Hover for buttons etc */
+        .dark .dark\:focus\:ring-indigo-500:focus { --tw-ring-color: var(--accent-blue); }
+        .dark .dark\:focus\:border-indigo-500:focus { border-color: var(--accent-blue); }
+
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="dark:bg-gray-900 flex flex-col h-screen">
+
+    <header class="dark:bg-gray-800 shadow-md p-4 border-b dark:border-gray-700">
+        <h1 class="text-xl font-semibold dark:text-gray-100">Ollama Go Frontend</h1>
+    </header>
+
+    <main class="flex-grow container mx-auto p-4 flex flex-col md:flex-row gap-4 overflow-hidden">
+
+        <div class="w-full md:w-1/4 flex-shrink-0 flex flex-col gap-4">
+            <div class="dark:bg-gray-800 p-4 rounded-lg shadow-md border dark:border-gray-700">
+                <label for="model-select" class="block text-sm font-medium dark:text-gray-300 mb-1">Select Model:</label>
+                <select id="model-select" name="model" class="w-full p-2 border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:focus\:ring-indigo-500 dark:focus\:border-indigo-500">
+                    <option value="">Loading models...</option>
+                </select>
+                <p id="model-error" class="text-red-500 text-sm mt-1"></p>
+            </div>
+             <div class="dark:bg-gray-800 p-4 rounded-lg shadow-md border dark:border-gray-700">
+                 <button id="clear-history-btn" class="w-full bg-red-600 hover:bg-red-700 dark:hover:bg-red-700 text-white font-medium py-2 px-4 rounded-md shadow-sm transition duration-150 ease-in-out">
+                     Clear Chat History
+                 </button>
+             </div>
+        </div>
+
+        <div class="w-full md:w-3/4 flex flex-col dark:bg-gray-800 rounded-lg shadow-md overflow-hidden border dark:border-gray-700">
+            <div id="chat-history" class="flex-grow p-4 overflow-y-auto space-y-3 bg-transparent"> <div class="message-bubble assistant-message">
+                    <p class="message-role">Assistant</p>
+                    <div class="message-content">
+                        <p>Welcome! Select a model and start chatting.</p>
+                    </div>
+                </div>
+            </div>
+
+             <div id="loader" class="loader"></div>
+
+            <div class="p-4 border-t dark:border-gray-700 dark:bg-gray-800"> <form id="chat-form" class="flex flex-col gap-3">
+                     <div id="image-preview-container">
+                         </div>
+                    <div class="flex items-center gap-3">
+                        <textarea id="prompt-input" name="prompt" rows="2" class="flex-grow p-2 border dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:focus\:ring-indigo-500 dark:focus\:border-indigo-500 resize-none dark:placeholder-gray-500" placeholder="Enter your prompt... (Shift+Enter for new line)"></textarea>
+                        <input type="file" id="image-input" name="images" accept="image/*" multiple class="hidden">
+                        <button type="button" id="image-upload-btn" title="Upload Images" class="p-2 bg-gray-600 hover:bg-gray-500 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-md text-gray-200 dark:text-gray-300">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                            </svg>
+                        </button>
+                        <button type="submit" id="send-button" class="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-medium py-2 px-4 rounded-md shadow-sm transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed">
+                            Send
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const modelSelect = document.getElementById('model-select');
+        const modelError = document.getElementById('model-error');
+        const chatHistory = document.getElementById('chat-history');
+        const chatForm = document.getElementById('chat-form');
+        const promptInput = document.getElementById('prompt-input');
+        const sendButton = document.getElementById('send-button');
+        const loader = document.getElementById('loader');
+        const imageInput = document.getElementById('image-input');
+        const imageUploadBtn = document.getElementById('image-upload-btn');
+        const imagePreviewContainer = document.getElementById('image-preview-container');
+        const clearHistoryBtn = document.getElementById('clear-history-btn');
+
+        let conversation = []; // Array to hold { role: 'user'/'assistant', content: '...', images: ['base64',...] }
+        let selectedFiles = []; // To hold File objects for submission
+
+        // Configure marked.js
+        // No longer need sanitize option here, use DOMPurify later
+        marked.setOptions({
+          breaks: true, // Convert carriage returns to <br>
+          gfm: true,    // Use GitHub Flavored Markdown
+        });
+
+        // --- Model Loading ---
+        async function fetchModels() {
+            modelError.textContent = '';
+            modelSelect.disabled = true;
+            try {
+                const response = await fetch('/api/models');
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Failed to fetch models: ${response.status} ${errorText || response.statusText}`);
+                }
+                const data = await response.json();
+                modelSelect.innerHTML = '<option value="">-- Select a Model --</option>';
+                if (data.models && data.models.length > 0) {
+                    data.models.sort((a, b) => b.modified_at.localeCompare(a.modified_at));
+                    data.models.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model.name;
+                        option.textContent = model.name;
+                        modelSelect.appendChild(option);
+                    });
+                } else {
+                    modelError.textContent = 'No models found. Is Ollama running and have you pulled models?';
+                }
+            } catch (error) {
+                console.error('Error fetching models:', error);
+                modelError.textContent = error.message || 'Could not connect to backend or Ollama.';
+                modelSelect.innerHTML = '<option value="">Error loading models</option>';
+            } finally {
+                modelSelect.disabled = false;
+            }
+        }
+
+        // --- Chat Display ---
+        // Creates the initial structure for a message bubble
+        function createMessageBubble(role) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message-bubble', role === 'user' ? 'user-message' : 'assistant-message');
+
+            const roleLabel = document.createElement('p');
+            roleLabel.classList.add('message-role');
+            roleLabel.textContent = role === 'user' ? 'You' : 'Assistant';
+            messageDiv.appendChild(roleLabel);
+
+            const contentDiv = document.createElement('div');
+            // Add markdown class only for assistant messages initially
+            contentDiv.classList.add('message-content', role === 'assistant' ? 'message-content-markdown' : null);
+            messageDiv.appendChild(contentDiv);
+
+            chatHistory.appendChild(messageDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+
+            return contentDiv; // Return the content div for updates
+        }
+
+        // Adds a complete user message or initial assistant message structure
+        function addUserMessageToHistory(role, content, imagesBase64 = []) {
+            const messageData = { role, content };
+            if (role === 'user' && imagesBase64.length > 0) {
+                messageData.images = imagesBase64; // Store base64 for Ollama request
+            }
+            conversation.push(messageData);
+
+            const contentDiv = createMessageBubble(role);
+
+            // Display text content (user messages aren't markdown by default)
+            if (content) {
+                const textP = document.createElement('p');
+                textP.textContent = content;
+                contentDiv.appendChild(textP);
+            }
+
+            // Display images for user message
+            if (role === 'user' && imagesBase64.length > 0) {
+                imagesBase64.forEach(base64String => {
+                    const img = document.createElement('img');
+                    // Determine image type (simple check, might need improvement)
+                    let mimeType = 'image/jpeg';
+                    if (base64String.startsWith('/9j/')) mimeType = 'image/jpeg';
+                    else if (base64String.startsWith('iVBORw0KGgo=')) mimeType = 'image/png';
+                    else if (base64String.startsWith('R0lGODlh')) mimeType = 'image/gif';
+                    else if (base64String.startsWith('UklGR')) mimeType = 'image/webp';
+
+                    img.src = `data:${mimeType};base64,${base64String}`;
+                    img.alt = 'Uploaded Image';
+                    contentDiv.appendChild(img);
+                });
+            }
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+
+        // --- Image Handling ---
+        imageUploadBtn.addEventListener('click', () => {
+            imageInput.click();
+        });
+
+        imageInput.addEventListener('change', (event) => {
+            selectedFiles = Array.from(event.target.files);
+            renderImagePreviews();
+        });
+
+        function renderImagePreviews() {
+            imagePreviewContainer.innerHTML = '';
+            selectedFiles.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = document.createElement('img');
+                    img.src = e.target.result;
+                    img.classList.add('img-preview');
+                    img.title = file.name;
+                    imagePreviewContainer.appendChild(img);
+                }
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function getBase64Images(files) {
+            const base64Promises = files.map(file => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const base64String = reader.result.split(',')[1];
+                        resolve(base64String);
+                    };
+                    reader.onerror = error => reject(error);
+                    reader.readAsDataURL(file);
+                });
+            });
+            return Promise.all(base64Promises);
+        }
+
+        // --- Form Submission and Streaming ---
+        chatForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+
+            const model = modelSelect.value;
+            const prompt = promptInput.value.trim();
+
+            if (!model) { alert('Please select a model.'); return; }
+            if (!prompt && selectedFiles.length === 0) { alert('Please enter a prompt or upload an image.'); return; }
+
+            sendButton.disabled = true;
+            loader.style.display = 'block';
+            let assistantContentDiv = null; // To hold the div where assistant content is added
+            let accumulatedAssistantContent = ""; // Accumulate raw text for final history update
+            let currentAssistantMessageData = null; // To store the final message object
+
+            try {
+                // 1. Get Base64 images for display
+                const imagesBase64 = await getBase64Images(selectedFiles);
+
+                // 2. Add user message to UI and internal state
+                addUserMessageToHistory('user', prompt, imagesBase64);
+
+                // 3. Prepare data for backend
+                const formData = new FormData();
+                formData.append('model', model);
+                formData.append('prompt', prompt);
+                const historyForOllama = conversation.slice(0, -1).map(msg => ({ role: msg.role, content: msg.content })); // Exclude images from past messages
+                formData.append('history', JSON.stringify(historyForOllama));
+                selectedFiles.forEach(file => { formData.append('images', file, file.name); });
+
+                // 4. Send data and initiate stream
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                     // Add error message to chat
+                    const errorContentDiv = createMessageBubble('assistant');
+                    errorContentDiv.innerHTML = `<p class="text-red-400">Error: ${response.status} ${errorText || response.statusText}</p>`;
+                    throw new Error(`Chat request failed: ${response.status} ${errorText || response.statusText}`);
+                }
+
+                // 5. Process the stream
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) {
+                        console.log("Stream finished.");
+                        break; // Exit loop when stream ends
+                    }
+
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // Process buffer line by line (SSE format: data: ...\n\n)
+                    let lines = buffer.split('\n\n');
+                    buffer = lines.pop(); // Keep potential partial message for next chunk
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const jsonData = line.substring(6).trim(); // Remove "data: " prefix
+                            if (jsonData) {
+                                try {
+                                    const chunk = JSON.parse(jsonData);
+
+                                    // First chunk? Create the assistant message bubble
+                                    if (!assistantContentDiv) {
+                                        assistantContentDiv = createMessageBubble('assistant');
+                                        currentAssistantMessageData = { role: 'assistant', content: '' }; // Initialize history entry
+                                    }
+
+                                    // Append content fragment and update UI
+                                    if (chunk.message && chunk.message.content) {
+                                        accumulatedAssistantContent += chunk.message.content;
+                                        // Render Markdown progressively
+                                        assistantContentDiv.innerHTML = DOMPurify.sanitize(marked.parse(accumulatedAssistantContent));
+                                        chatHistory.scrollTop = chatHistory.scrollHeight; // Keep scrolled down
+                                    }
+
+                                    // Check if Ollama signaled done
+                                    if (chunk.done) {
+                                        console.log("Ollama signaled done:", chunk);
+                                        // Update the final content in our internal history state
+                                        if (currentAssistantMessageData) {
+                                            currentAssistantMessageData.content = accumulatedAssistantContent;
+                                            conversation.push(currentAssistantMessageData); // Add complete message to history
+                                        }
+                                        // reader.cancel(); // Should not be needed as done=true implies end
+                                        // break; // Exit inner loop is handled by outer loop's done flag
+                                    }
+                                } catch (e) {
+                                    console.error("Error parsing JSON chunk:", e, "Data:", jsonData);
+                                }
+                            }
+                        }
+                    } // end for loop processing lines
+                } // end while loop reading stream
+
+                // Handle any remaining data in the buffer (usually none for SSE)
+                if (buffer.trim().startsWith('data: ')) {
+                   // Process final potential chunk (similar logic as above)
+                   const jsonData = buffer.substring(6).trim();
+                    if (jsonData) {
+                        try {
+                            const chunk = JSON.parse(jsonData);
+                            if (!assistantContentDiv) { /* ... create bubble ... */ }
+                            if (chunk.message && chunk.message.content) {
+                                accumulatedAssistantContent += chunk.message.content;
+                                assistantContentDiv.innerHTML = DOMPurify.sanitize(marked.parse(accumulatedAssistantContent));
+                            }
+                             if (chunk.done && currentAssistantMessageData) {
+                                currentAssistantMessageData.content = accumulatedAssistantContent;
+                                conversation.push(currentAssistantMessageData);
+                            }
+                        } catch (e) { console.error("Error parsing final JSON chunk:", e, "Data:", jsonData); }
+                    }
+                }
+
+
+                // 6. Clear input and previews
+                promptInput.value = '';
+                imageInput.value = '';
+                selectedFiles = [];
+                renderImagePreviews();
+
+            } catch (error) {
+                console.error('Error during chat fetch/stream:', error);
+                // Ensure assistant bubble exists if error happened mid-stream
+                 if (!assistantContentDiv) {
+                    assistantContentDiv = createMessageBubble('assistant');
+                 }
+                 // Display error in the assistant bubble
+                 assistantContentDiv.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
+            } finally {
+                sendButton.disabled = false;
+                loader.style.display = 'none';
+                promptInput.focus();
+            }
+        });
+
+         // --- Text Area Input Handling ---
+        promptInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                chatForm.requestSubmit();
+            }
+        });
+
+        // --- Clear History ---
+        clearHistoryBtn.addEventListener('click', () => {
+            if (confirm('Are you sure you want to clear the chat history?')) {
+                conversation = [];
+                chatHistory.innerHTML = '';
+                 // Add back the initial welcome message
+                 const welcomeDiv = createMessageBubble('assistant');
+                 welcomeDiv.innerHTML = '<p>Chat history cleared. Select a model and start chatting.</p>';
+                 console.log("Chat history cleared.");
+            }
+        });
+
+        // --- Initial Load ---
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchModels();
+            promptInput.focus();
+        });
+
+    </script>
+
+</body>
+</html>
